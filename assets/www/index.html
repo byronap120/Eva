@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Page Title</title>
+
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" href="css/jquery.mobile-1.3.1.css" type="text/css"/>
+	<script type="text/javascript" src="js/jquery-2.0.2.min.js"></script>
+	<script type="text/javascript" src="js/jquery.mobile-1.3.1.min.js"></script>
+	<script type="text/javascript" src="js/cordova.js"></script>
+
+
+	<!-- Este Script prepara la base de datos -->
+    <script type="text/javascript" charset="utf-8">
+
+    var db;
+    var datos_json;
+    var fechaWebService;
+    var nombresWebServices = [ "rperfiles"]; //, "rmenuppal"  ];
+    var camposFechaWebServices = [ "rper_date"];//, "rmen_date"  ];
+
+    //*******************************************************
+    // Se crea la base de datos y se manda a  llamar a  "LeerDatos"
+    //********************************************************
+    document.addEventListener("deviceready", onDeviceReady, false);
+
+    // PhoneGap is ready
+    function onDeviceReady() {
+
+        //mensaje de load
+        $.mobile.loading( 'show', {
+            text: 'Cargando datos',
+            textVisible: true,
+            theme: 'a',
+            html: ""
+        });
+
+        db = window.openDatabase("Database", "1.0", "EVA_BD", 200000);
+        db.transaction(createDB, errorCB, obtenerFecha);
+    }
+
+    // Se Crean las tablas
+    function createDB(tx) {
+        tx.executeSql('CREATE TABLE IF NOT EXISTS APPINFO (id unique,fecha)');
+        tx.executeSql('CREATE TABLE IF NOT EXISTS rmenuppal (id, rmen_cmpy,rmen_codmen,rmen_desmen,rmen_cabecera,rmen_aplicacion,rmen_enter,rmen_date,rmen_time,rmen_estadoupd)');
+        tx.executeSql('CREATE TABLE IF NOT EXISTS rperfiles (id, rper_cmpy,rper_codper,rper_date,rper_desper,rper_enter,rper_estadoupd,rper_time)');
+    }
+
+
+
+
+    //************************************************************
+    // Se obtiene la fecha de la ultima vez de la conexion
+    //************************************************************
+    function obtenerFecha() {
+        db.transaction(queryDB, errorCB);
+    }
+    // Query the database
+    function queryDB(tx) {
+        tx.executeSql('SELECT fecha FROM APPINFO', [], querySuccess, errorCB);
+    }
+    function querySuccess(tx, results) {
+        var len = results.rows.length;
+        console.log("APPINFO table: " + len + " rows found.");
+        if(len>0){
+            fechaWebService = results.rows.item(0).fecha;
+        } else {
+           db.transaction(insertFecha, errorCB);
+        }
+        db.transaction(obtenerWebServices, errorCB); 
+    }
+
+     function insertFecha(tx) {
+         tx.executeSql('INSERT INTO APPINFO (id,fecha) VALUES (1,"1/1/2000")');
+         fechaWebService="1/1/2000";
+     }
+
+    function fechaActual() {
+        //se obtiene la fecha actual
+        var fullDate = new Date()
+        var twoDigitMonth = ((fullDate.getMonth().length+1) === 1)? (fullDate.getMonth()+1) : '0' + (fullDate.getMonth()+1);
+        fechaWebService =   twoDigitMonth+ "/" + fullDate.getDate() + "/" + fullDate.getFullYear();
+     }
+
+
+
+
+     //***********************************************************
+     //Se obtinen los webServices en base a la fecha obtenida
+     //***********************************************************
+     var cont1=0;
+     var cont2=0;
+     var cont3=0;
+     function obtenerWebServices(tx){
+        ultimo_webservice =  nombresWebServices[nombresWebServices.length-1];
+        for (var i in nombresWebServices) {
+                 console.log('function=' + nombresWebServices[i] + '&' + camposFechaWebServices[i] + '=' + fechaWebService);
+                 $.ajax({ // ajax call starts
+                  url: 'http://201.234.240.35/evaWS/Default.aspx', // JQuery loads serverside.php
+                  data: 'function=' + nombresWebServices[i]  + '&' + camposFechaWebServices[i] + '=' + fechaWebService , // Send value of the clicked button
+                  dataType: 'json', // Choosing a JSON datatype
+                  success: function(data) // Variable data contains the data we get from serverside
+                  {   
+                      cont1++;
+                      existen_values=0;
+                      $.each(data, function(key, val) {  
+                        existen_values=val.length;
+                        cont2 = cont2 + val.length;
+                            $.each(val, function(key2, val2) {
+                                var estadoUPD = "";
+                                var consulta ="";
+                                var values = "";
+                                var llavesTabla = "";
+                                 $.each(val2, function(key3, val3) {
+
+                                         //se obtienen las llaves
+                                        if (key3.indexOf("KEY_") !=-1) {
+                                            key3 = key3.substring(key3.indexOf("_")+1, key3.length);
+                                            var llaveTemp = key3 + '="' + val3+'"';
+                                            llavesTabla = llavesTabla +" " + llaveTemp + " and ";
+                                        }
+
+                                         values = values + '"'+ val3  +'",';
+                                         consulta = consulta + key3 +",";
+                                         if (key3.indexOf("estadoupd") !=-1) {
+                                            estadoUPD = val3;
+                                        }
+
+                                 });
+
+                                 if(llavesTabla.length >0) {
+                                    llavesTabla = llavesTabla.substring(0,llavesTabla.length-4);
+                                 }
+                                 values = values.substring(0,values.length-1);
+                                 consulta = consulta.substring(0,consulta.length-1); 
+                                 var temp_query = "";
+
+                                 if(estadoUPD=="I")
+                                 {
+                                    temp_query  = 'INSERT INTO ' + key +'('+consulta+') VALUES (' + values +')';
+                                    db.transaction( function(tx){ insertarwb(tx, temp_query) } );
+                                 }else 
+                                 {
+
+                           
+
+                                    var temp_query_delete = 'DELETE FROM ' + key + ' WHERE ' + llavesTabla;
+                                    temp_query  = 'INSERT INTO ' + key +'('+consulta+') VALUES (' + values +')';
+                                    var temp_query_select= 'SELECT * FROM ' + key + ' WHERE ' + llavesTabla;
+
+                                    
+                                    //console.log("SE BORRA:::"+temp_query_delete);
+                                    //console.log("SE INSERTA:::"+temp_query);
+                                    //console.log("SE SELECCIONA:::"+temp_query_select);
+                                   
+                                    db.transaction( function(tx){ existeTupla(tx, temp_query_select,temp_query_delete,temp_query,estadoUPD) } );
+                                 }
+                                 
+                            });
+                      });
+
+                    //Por si el webservice esta vacio
+                      if(existen_values == 0)
+                      {
+                          cont2++;
+                          var temp_query = "null";
+                          db.transaction( function(tx){ insertarwb(tx, temp_query) } );
+                          console.log("VACIO:::" + existen_values);
+                      }
+
+                  }
+            });
+        }
+    }
+
+     //vereifica que exista la tupla (realiza el query)
+     function existeTupla(tx,temp_query_select,temp_query_delete,temp_query,estadoUPD)
+     {
+        tx.executeSql(temp_query_select, [], function(tx,results){verificar_existe(tx,results,temp_query_delete,temp_query,estadoUPD)}, errorCB);
+     }
+
+
+     //revisa si el query tiene algun resutaldo
+     function verificar_existe(tx, results,temp_query_delete,temp_query,estadoUPD){
+         var len = results.rows.length;
+         if(len>0)
+         {
+             db.transaction( function(tx){ deleteSiExiste(tx, temp_query_delete,temp_query,estadoUPD) } );
+         }else
+         {
+             //se realiza si es un update pero esta tupla no existe en la tabla, entonces se proceda a hacer el insert
+             if(estadoUPD=="U")
+             {
+                db.transaction( function(tx){ insertarwb(tx, temp_query) } );
+             }else{
+                 db.transaction( function(tx){ insertarwb(tx, "null") } );  
+             }
+            
+         }
+     }
+
+     //se borra la tupla existente
+    function deleteSiExiste(tx,temp_query_delete,temp_query,estadoUPD){
+
+        tx.executeSql(temp_query_delete);
+
+        //ya se ha borrado la tupla, pero si es un update se hace el insert
+        if(estadoUPD=="U")
+        {
+            console.log("update despues de delete: " + temp_query );
+            db.transaction( function(tx){ insertarwb(tx, temp_query) } );
+        }else{
+
+            db.transaction( function(tx){ insertarwb(tx, "null") } );
+        }
+     }
+
+
+
+     function insertarwb(tx,temp_query)
+     {
+        if(temp_query != "null")
+        {
+            tx.executeSql(temp_query);
+        }
+        
+        cont3++;
+        if(cont2==cont3 && cont1==nombresWebServices.length)
+        {
+            $.mobile.loading( 'hide' );
+            $.mobile.changePage("#menu");
+            console.log("estadoApp:Se han leido todos los webService");
+            prueba();
+        }else{
+
+            console.log("estadoApp:leyendo webServices");
+        }
+     }
+
+     function insertFecha2(tx) {
+          tx.executeSql('UPDATE APPINFO SET fecha="' + fechaWebService + '" WHERE Id=1');
+     }
+
+
+
+
+     //***********************************************************
+     //Se se carga la pagina principal
+     //***********************************************************
+     function prueba (){
+        fechaActual();
+        db.transaction(insertFecha2);
+
+        //llenar el combo de perfiles
+        db.transaction(comboPerfiles, errorCB);
+     }
+
+
+     function comboPerfiles(tx)
+     {
+        tx.executeSql('SELECT * FROM rperfiles', [], queryLlenarCombo, errorCB);
+     }
+
+     function queryLlenarCombo(tx, results){
+
+        var len = results.rows.length;
+        console.log("DEMO table: " + len + " rows found.");
+        var options = "";
+        for (var i=0; i<len; i++){
+                console.log( i + " " + results.rows.item(i).rper_desper);
+                options += "<option value='" + results.rows.item(i).rper_desper  + "'>" + results.rows.item(i).rper_desper+ "</option>";
+        }
+         $("#select-choice-0").empty().append(options);
+
+     }
+
+    //*************************************************************
+    // Mensaje de error
+    //*************************************************************
+    function errorCB(err) {
+        console.log("Error processing SQL: "+err.code);
+    }
+
+    </script>
+</head>
+<body>
+
+<div data-role="page" id="home">
+
+    <div data-role="header" data-position="fixed">
+        <h1>Ejemplo Phonegap Json</h1>
+    </div><!-- /header -->
+
+    <div data-role="content">   
+
+
+    </div><!-- /content -->
+    
+    <div data-role="footer" data-position="fixed">
+        <h4>Page Footer</h4>
+    </div><!-- /footer -->
+</div><!-- /page -->
+
+
+<div data-role="page" id="menu">
+
+    <div data-role="header" data-position="fixed">
+        <h1>Ejemplo Phonegap Json</h1>
+    </div><!-- /header -->
+
+    <div data-role="content">   
+       
+        <select name="select-choice-0" id="select-choice-0">
+            <option value="standard">Seleccionar Perfil</option>
+        </select>
+
+
+    </div><!-- /content -->
+    
+    <div data-role="footer" data-position="fixed">
+        <h4>Page Footer</h4>
+    </div><!-- /footer -->
+</div><!-- /page -->
+
+
+</body>
+</html>

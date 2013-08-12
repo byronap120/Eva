@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Page Title</title>
+
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="css/jquery.mobile-1.3.1.css" type="text/css"/>
+    <script type="text/javascript" src="js/jquery-2.0.2.min.js"></script>
+    <script type="text/javascript" src="js/jquery.mobile-1.3.1.min.js"></script>
+    <script type="text/javascript" src="js/cordova.js"></script>
+
+
+    <!-- Este Script prepara la base de datos -->
+    <script type="text/javascript" charset="utf-8">
+
+    var db;
+    var datos_json;
+    var fechaWebService;
+    var nombresWebServices = [ "rmenuppal", "rperfiles" ];
+
+    //*******************************************************
+    // Se crea la base de datos y se manda a  llamar a  "LeerDatos"
+    //********************************************************
+    document.addEventListener("deviceready", onDeviceReady, false);
+
+    // PhoneGap is ready
+    function onDeviceReady() {
+
+        //mensaje de load
+        $.mobile.loading( 'show', {
+            text: 'Cargando datos',
+            textVisible: true,
+            theme: 'a',
+            html: ""
+        });
+
+        db = window.openDatabase("Database", "1.0", "EVA_BD", 200000);
+        db.transaction(createDB, errorCB, obtenerFecha);
+    }
+
+    // Se Crean las tablas
+    function createDB(tx) {
+        tx.executeSql('CREATE TABLE IF NOT EXISTS APPINFO (id unique,fecha)');
+        tx.executeSql('CREATE TABLE IF NOT EXISTS rmenuppal (id, rmen_cmpy,rmen_codmen,rmen_desmen,rmen_cabecera,rmen_aplicacion,rmen_enter,rmen_date,rmen_time,rmen_estadoupd)');
+        tx.executeSql('CREATE TABLE IF NOT EXISTS rperfiles (id, rper_cmpy,rper_codper,rper_date,rper_desper,rper_enter,rper_estadoupd,rper_time)');
+    }
+
+
+
+
+    //************************************************************
+    // Se obtiene la fecha de la ultima vez de la conexion
+    //************************************************************
+    function obtenerFecha() {
+        db.transaction(queryDB, errorCB);
+    }
+    // Query the database
+    function queryDB(tx) {
+        tx.executeSql('SELECT fecha FROM APPINFO', [], querySuccess, errorCB);
+    }
+    function querySuccess(tx, results) {
+        var len = results.rows.length;
+        console.log("APPINFO table: " + len + " rows found.");
+        if(len>0){
+            fechaWebService = results.rows.item(0).fecha;
+            fechaFinal();  
+        } else {
+           db.transaction(insertFecha, errorCB, fechaFinal);
+        }
+    }
+
+     function insertFecha(tx) {
+         tx.executeSql('INSERT INTO APPINFO (id,fecha) VALUES (1,"1/1/2000")');
+         fechaWebService="1/1/2000";
+     }
+    function fechaFinal() {
+        //se obtiene la fecha actual
+        var fullDate = new Date()
+        var twoDigitMonth = ((fullDate.getMonth().length+1) === 1)? (fullDate.getMonth()+1) : '0' + (fullDate.getMonth()+1);
+        fechaWebService =   twoDigitMonth+ "/" + fullDate.getDate() + "/" + fullDate.getFullYear();
+        db.transaction(obtenerWebServices, errorCB); 
+        //db.transaction(insertFecha2, errorCB, prueba);
+     }
+
+
+
+
+     //***********************************************************
+     //Se obtinen los webServices en base a la fecha obtenida
+     //***********************************************************
+     var cont1=0;
+     var cont2=0;
+     var cont3=0;
+     function obtenerWebServices(tx){
+        ultimo_webservice =  nombresWebServices[nombresWebServices.length-1];
+        for (var i in nombresWebServices) {
+                 
+                 $.ajax({ // ajax call starts
+                  url: 'http://201.234.240.35/evaWS/Default.aspx', // JQuery loads serverside.php
+                  data: 'function=' + nombresWebServices[i], // Send value of the clicked button
+                  dataType: 'json', // Choosing a JSON datatype
+                  success: function(data) // Variable data contains the data we get from serverside
+                  {   
+                      cont1++;
+                      $.each(data, function(key, val) {             
+                        cont2 = cont2 + val.length;
+                            $.each(val, function(key2, val2) {
+                                var consulta ="";
+                                var values = "";
+                                 $.each(val2, function(key3, val3) {
+                                         values = values + '"'+ val3  +'",';
+                                         consulta = consulta + key3 +",";
+                                 });
+                                 values = values.substring(0,values.length-1);
+                                 consulta = consulta.substring(0,consulta.length-1);
+                                 var temp_query  = 'INSERT INTO ' + key +'('+consulta+') VALUES (' + values +')';
+                                 db.transaction( function(tx){ insertarwb(tx, temp_query) } );
+                            });
+                      });
+                  }
+            });
+        }
+    }
+
+
+     function insertarwb(tx,temp_query)
+     {
+        tx.executeSql(temp_query);
+        cont3++;
+        if(cont2==cont3 && cont1==nombresWebServices.length)
+        {
+            $.mobile.loading( 'hide' );
+            $.mobile.changePage("#menu");
+            prueba();
+        }
+     }
+
+     function insertFecha2(tx) {
+          tx.executeSql('UPDATE APPINFO SET fecha="' + fechaWebService + '" WHERE Id=1');
+     }
+
+
+
+
+     //***********************************************************
+     //Se se carga la pagina principal
+     //***********************************************************
+     function prueba (){
+        db.transaction(insertFecha2);
+
+        //llenar el combo de perfiles
+        db.transaction(comboPerfiles, errorCB);
+     }
+
+
+     function comboPerfiles(tx)
+     {
+        tx.executeSql('SELECT * FROM rperfiles', [], queryLlenarCombo, errorCB);
+     }
+
+     function queryLlenarCombo(tx, results){
+
+        var len = results.rows.length;
+        console.log("DEMO table: " + len + " rows found.");
+        var options = "";
+        for (var i=0; i<len; i++){
+                console.log( i + " " + results.rows.item(i).rper_desper);
+                options += "<option value='" + results.rows.item(i).rper_desper  + "'>" + results.rows.item(i).rper_desper+ "</option>";
+        }
+         $("#select-choice-0").empty().append(options);
+
+     }
+
+    //*************************************************************
+    // Mensaje de error
+    //*************************************************************
+    function errorCB(err) {
+        console.log("Error processing SQL: "+err.code);
+    }
+
+    </script>
+</head>
+<body>
+
+<div data-role="page" id="home">
+
+    <div data-role="header" data-position="fixed">
+        <h1>Ejemplo Phonegap Json</h1>
+    </div><!-- /header -->
+
+    <div data-role="content">   
+
+
+    </div><!-- /content -->
+    
+    <div data-role="footer" data-position="fixed">
+        <h4>Page Footer</h4>
+    </div><!-- /footer -->
+</div><!-- /page -->
+
+
+<div data-role="page" id="menu">
+
+    <div data-role="header" data-position="fixed">
+        <h1>Ejemplo Phonegap Json</h1>
+    </div><!-- /header -->
+
+    <div data-role="content">   
+       
+        <select name="select-choice-0" id="select-choice-0">
+            <option value="standard">Seleccionar Perfil</option>
+        </select>
+
+
+    </div><!-- /content -->
+    
+    <div data-role="footer" data-position="fixed">
+        <h4>Page Footer</h4>
+    </div><!-- /footer -->
+</div><!-- /page -->
+
+
+</body>
+</html>
